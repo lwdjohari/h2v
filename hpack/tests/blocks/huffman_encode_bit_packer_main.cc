@@ -118,12 +118,23 @@ int main() {
   for (auto& s : inputs) {
     std::cout << s << std::endl;
     h2v::hpack::RawBuffer<> result;
-    auto write_size = hc.Encode(s, result, false);
+    auto write_size = hc.Encode(s, result);
     if (write_size.ok()) {
       std::cout << "HC-OK [raw:" << s.size()
                 << " encoded:" << write_size.value()
                 << " buffer:" << s.capacity() << "]\n";
-      std::cout << result.HexDump16(false, true) << "\n" << std::endl;
+      std::cout << result.HexDump16(false, true) << "\n";
+
+      std::string decoded_str;
+      auto decode = hc.Decode(result,decoded_str);
+      if(decode.ok()){
+        std::cout << "HD-OK ["
+                << " encoded:" << write_size.value()
+                << " result:" << decoded_str.size() << "]: \n"
+                << decoded_str << "\n\n";
+      }else{
+        std::cout << "HD-Failed!\n" << std::endl;  
+      }
     } else {
       std::cout << "HC-Failed!\n" << std::endl;
     }
