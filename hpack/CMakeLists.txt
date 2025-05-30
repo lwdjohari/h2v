@@ -32,7 +32,7 @@ option(HPAC_ENABLE_LTO "Enable Link Time Optimization" ON)
 add_library(${PROJECT_NAME}
   src/h2v/hpack/dynamic_table.cc
   src/h2v/hpack/integer_codec.cc
-  src/h2v/hpack/huffman_byte_table.cc
+  src/h2v/hpack/generated/huffman_byte_table.cc
   src/h2v/hpack/huffman_codec.cc
   # src/h2v/hpack/hpack.cc
 )

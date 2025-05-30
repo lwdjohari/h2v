@@ -8,19 +8,18 @@
 #include "h2v/hpack/raw_buffer.h"
 
 // Pull in the generated FSM table:
-#include "huffman_byte_table.cc"
+#include "generated/huffman_byte_table.cc"
 
 namespace h2v {
 namespace hpack {
 
 absl::StatusOr<std::size_t> HuffmanCodec::Encode(const std::string& input,
-                                                 RawBuffer<>& out,
-                                                 bool use_highway) noexcept {
-  return Encode(absl::string_view(input.data(), input.size()), out, false);
+                                                 RawBuffer<>& out) noexcept {
+  return Encode(absl::string_view(input.data(), input.size()), out);
 }
 
-absl::StatusOr<std::size_t> HuffmanCodec::Encode(
-    absl::string_view input, RawBuffer<>& out, bool /*use_highway*/) noexcept {
+absl::StatusOr<std::size_t> HuffmanCodec::Encode(absl::string_view input,
+                                                 RawBuffer<>& out) noexcept {
   // worst-case: every symbol 30 bits + up to 7 pad bits
   size_t max_bytes = (input.size() * 30 + 7) / 8;
   RawBuffer<> hbuf{/*alloc=*/{}, /*initial_capacity=*/max_bytes};
@@ -76,197 +75,115 @@ absl::StatusOr<std::size_t> HuffmanCodec::Encode(
 
   // ptr is N past span.data()
   size_t used = ptr - sptr.data();
-  
+
   // just mark how many bytes written in the end
   hbuf.append(used);
   out = std::move(hbuf);
 
   return used;
-
-  // // 1) Huffman-encode into temp buffer to measure length
-  // RawBuffer<> hbuf{/*alloc=*/{}, /*initial_capacity=*/input.size()};
-  // hbuf.reserve(input.size());
-  // uint64_t bit_buffer = 0;
-  // int bit_count = 0;
-
-  // for (unsigned char c : input) {
-  //   uint32_t code = huffman::CODE[c];
-  //   int len = huffman::LEN[c];
-  //   bit_buffer = (bit_buffer << len) | code;
-  //   bit_count += len;
-  //   while (bit_count >= 8) {
-  //     bit_count -= 8;
-  //     uint8_t* p = hbuf.append(1);
-  //     if (!p) {
-  //       if (auto cb = GetErrorCallback()) {
-  //         cb(0,
-  //            make_error(0x0001,
-  //                       static_cast<uint16_t>(HuffmanSubcode::OutputOverflow)),
-  //            "HuffmanCodec::Encode: overflow in hbuf");
-  //       }
-  //       return absl::InternalError("Huffman encode overflow");
-  //     }
-  //     *p = static_cast<uint8_t>(bit_buffer >> bit_count);
-  //     bit_buffer &= ((uint64_t(1) << bit_count) - 1);
-  //   }
-  // }
-
-  // if (bit_count > 0) {
-  //   // final EOS padding (all 1s)
-  //   uint8_t pad = static_cast<uint8_t>((bit_buffer << (8 - bit_count)) |
-  //                                      ((uint8_t(1) << (8 - bit_count)) -
-  //                                      1));
-  //   uint8_t* p = hbuf.append(1);
-  //   if (!p) {
-  //     if (auto cb = GetErrorCallback()) {
-  //       cb(0,
-  //          make_error(0x0001,
-  //                     static_cast<uint16_t>(HuffmanSubcode::OutputOverflow)),
-  //          "HuffmanCodec::Encode: pad overflow");
-  //     }
-  //     return absl::InternalError("Huffman pad overflow");
-  //   }
-  //   *p = pad;
-  // }
-
-  // // 2) Prefix the HPACK string length using a 7-bit integer with H-bit=1
-  // std::size_t hlen = hbuf.data().size();
-  // // Reserve exact space: 1 byte for prefix + hlen
-  // out.reserve(1 + hlen);
-  // if (!EncodeInteger<7>(static_cast<uint32_t>(hlen),
-  //                       /*prefix_bits=*/0x80, out)) {
-  //   if (auto cb = GetErrorCallback()) {
-  //     cb(0,
-  //        make_error(0x0001,
-  //                   static_cast<uint16_t>(HuffmanSubcode::OutputOverflow)),
-  //        "HuffmanCodec::Encode: length prefix overflow");
-  //   }
-  //   return absl::InternalError("Integer encode overflow");
-  // }
-
-  // // 3) Append the Huffman-coded bytes in one bulk write
-  // const auto& src = hbuf.data();
-  // uint8_t* dst = out.append(src.size());
-  // if (!dst) {
-  //   if (auto cb = GetErrorCallback()) {
-  //     cb(0,
-  //        make_error(0x0001,
-  //                   static_cast<uint16_t>(HuffmanSubcode::OutputOverflow)),
-  //        "HuffmanCodec::Encode: data append overflow");
-  //   }
-  //   return absl::InternalError("Huffman data append overflow");
-  // }
-  // memcpy(dst, src.data(), src.size());
-
-  // // 4) Return total bytes written
-  // return out.data().size();
 }
 
-// bool HuffmanCodec::Encode(absl::string_view input, RawBuffer<>& out,
-//                           bool use_highway) noexcept {
-//   if (input.empty())
-//     return true;
-//   // 1) Table-driven fast path for all but last
-//   size_t last = input.size() - 1;
-//   for (size_t i = 0; i < last; ++i) {
-//     auto c = static_cast<unsigned char>(input[i]);
-//     const auto& e = huffman::kEncodeTable[c];
-//     uint8_t* p = out.append(e.byte_count);
-//     // if (!p) return overflow_error();
-//     if (!p)
-//       return false;
+absl::StatusOr<size_t> HuffmanCodec::Decode(const uint8_t* ip, size_t ip_size,
+                                            std::string& out,
+                                            bool trace) noexcept {
+  const uint8_t* ipEnd = ip + ip_size;
+  out.clear();
+  out.reserve(ip_size);  // optional, to reduce reallocations
 
-//     memcpy(p, e.bytes, e.byte_count);
-//   }
+  uint16_t state = 0;
+  while (ip < ipEnd) {
+    uint8_t b = *ip++;
 
-//   // 2) Bit-buffer for final symbol + padding
-//   unsigned char c = input[last];
-//   uint64_t bit_buffer = huffman::CODE[c];  // kCode[c];
-//   int bit_count = huffman::LEN[c];         // kLen[c];
-//   // Now flush any full bytes in buffer
-//   while (bit_count >= 8) {
-//     bit_count -= 8;
-//     uint8_t* p = out.append(1);
-//     // if (!p) return overflow_error();
-//     if (!p)
-//       return false;
-//     *p = static_cast<uint8_t>(bit_buffer >> bit_count);
-//     bit_buffer &= ((uint64_t(1) << bit_count) - 1);
-//   }
-//   // Final EOS padding
-//   if (bit_count > 0) {
-//     uint8_t pad = static_cast<uint8_t>((bit_buffer << (8 - bit_count)) |
-//                                        ((uint8_t(1) << (8 - bit_count)) -
-//                                        1));
-//     uint8_t* p = out.append(1);
-//     // if (!p) return overflow_error();
-//     if (!p)
-//       return false;
-//     *p = pad;
-//   }
-//   return true;
-// }
+    // pointer‐arithmetic lookup into the flat [513×256] table
+    const huffman::ByteDecodeEntry* eptr =
+        huffman::kByteDecodeTable + (static_cast<size_t>(state) << 8) + b;
 
-absl::StatusOr<size_t> HuffmanCodec::Decode(absl::string_view input,
-                                            RawBuffer<>& out,
-                                            bool use_highway) noexcept {
-  if (use_highway) {
-    auto hw = highwayDecode(input, out);
-    if (hw.ok())
-      return *hw;
-  }
-
-  size_t out_count = 0;
-  uint32_t state = 0;
-  const uint8_t* ptr = reinterpret_cast<const uint8_t*>(input.data());
-  const uint8_t* end = ptr + input.size();
-
-  while (ptr < end) {
-    uint8_t byte = *ptr++;
-    const huffman::ByteDecodeEntry& e =
-        huffman::kByteDecodeTable[state * 257 + byte];
-
-    // Detect error entry
-    if (e.emit_count == 0xFF) {
-      if (auto cb = GetErrorCallback()) {
-        cb(0,
-           make_error(0x0001,
-                      static_cast<uint16_t>(HuffmanSubcode::DecodeError)),
-           "HuffmanCodec::decode: invalid Huffman sequence");
-      }
-      return absl::InvalidArgumentError("Huffman invalid code");
+    if (trace) {
+      size_t key = (state << 8) | b;
+      const huffman::ByteDecodeEntry* e = huffman::kByteDecodeTable + key;
+      printf("key=%zu state=%u byte=0x%02X emit=%u sym0=0x%02X sym1=0x%02X\n",
+             key, state, b, e->emit_count, e->symbols[0], e->symbols[1]);
     }
 
-    // Emit decoded symbols
-    for (int i = 0; i < e.emit_count; ++i) {
-      uint8_t* p = out.append(1);
-      if (!p) {
-        if (auto cb = GetErrorCallback()) {
-          cb(0,
-             make_error(0x0001,
-                        static_cast<uint16_t>(HuffmanSubcode::OutputOverflow)),
-             "HuffmanCodec::decode: output overflow");
-        }
-        return absl::InvalidArgumentError("Huffman output overflow");
-      }
-      *p = e.symbols[i];
-      ++out_count;
+    switch (eptr->emit_count) {
+      case 2:
+        out.push_back(
+            static_cast<char>(eptr->symbols[0]));  // emit symbol0 first
+        out.push_back(static_cast<char>(eptr->symbols[1]));  // then symbol1
+        break;
+      case 1:
+        out.push_back(static_cast<char>(eptr->symbols[0]));
+        break;
+      default:
+        break;
     }
 
-    state = e.next_state;
+    state = eptr->next_state;
   }
 
-  // Must end in an accepting state
+  if (trace) {
+    std::cout << "Huffman Decoded before padding: " << out << std::endl;
+  }
+
+  // 2) If we landed exactly on the root, no padding bits remain
+  if (state == 0) {
+    if (trace) {
+      std::cout << "[Decode] landed on root, no padding needed\n";
+    }
+    return out.size();
+  }
+
+  // 3) Compute pad_bits from the depth in the last byte
+  int depth = huffman::kStateDepth[state] & 7;  // bits consumed in last symbol
+  int pad_bits = (8 - depth) & 7;
+  if (trace) {
+    std::cout << "[Decode] post‐bytes state=" << state << " depth=" << depth
+              << " pad_bits=" << pad_bits << "\n";
+  }
+
+  // 4) Feed exactly pad_bits of '1'-bits
+  for (int i = 0; i < pad_bits; ++i) {
+    const auto& be = huffman::kBitTable[state][1];  // transition on bit=1
+    if (trace) {
+      std::cout << " [Pad] bit#" << i << " state->" << state
+                << " emit=" << int(be.emit_count) << " next=" << be.next_state
+                << "\n";
+    }
+    if (be.emit_count != 0) {
+      if (trace) {
+        std::cout << " [Pad] ❌ emitted symbol during padding\n";
+      }
+      return absl::InvalidArgumentError(
+          "Huffman decode error: padding emitted symbol");
+    }
+    state = be.next_state;
+  }
+
+  // 5) Final accepting-state check
+  if (trace) {
+    std::cout << "[Decode] after padding state=" << state
+              << " accepting=" << (huffman::kAccepting[state] ? "yes" : "no")
+              << "\n";
+  }
   if (!huffman::kAccepting[state]) {
-    if (auto cb = GetErrorCallback()) {
-      cb(0,
-         make_error(0x0001, static_cast<uint16_t>(HuffmanSubcode::DecodeError)),
-         "HuffmanCodec::decode: incomplete code at end");
+    if (trace) {
+      std::cout << " [Decode] ❌ final state not accepting\n";
     }
-    return absl::InvalidArgumentError("Huffman decode incomplete");
+    return absl::InvalidArgumentError(
+        "Huffman decode error: invalid EOS state");
   }
 
-  return out_count;
+  if (trace) {
+    std::cout << "[Decode] ✅ EOS padding accepted\n";
+  }
+  
+  return out.size();
+}
+
+absl::StatusOr<size_t> HuffmanCodec::Decode(const RawBuffer<>& input,
+                                            std::string& out,
+                                            bool trace) noexcept {
+  return Decode(input.raw(), input.size(), out, trace);
 }
 
 }  // namespace hpack
