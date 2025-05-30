@@ -92,6 +92,11 @@ class RawBuffer {
     return {data_, size_};
   }
 
+  const uint8_t* raw() const noexcept {
+    return data_;
+  }
+
+
   absl::Span<uint8_t> mutable_data() noexcept {
     return {data_, size_};
   }
