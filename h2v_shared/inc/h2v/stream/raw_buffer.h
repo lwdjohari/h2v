@@ -12,7 +12,7 @@
 #include "absl/types/span.h"
 
 namespace h2v {
-namespace hpack {
+namespace stream {
 
 /// @brief A resizable byte buffer with full allocator control,
 ///        avoiding any std::vector overhead.
@@ -95,7 +95,6 @@ class RawBuffer {
   const uint8_t* raw() const noexcept {
     return data_;
   }
-
 
   absl::Span<uint8_t> mutable_data() noexcept {
     return {data_, size_};
@@ -234,5 +233,5 @@ class RawBuffer {
   }
 };
 
-}  // namespace hpack
+}  // namespace stream
 }  // namespace h2v
