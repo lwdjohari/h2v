@@ -1,13 +1,14 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: MIT
 // Copyright (c) 2025 Linggawasistha Djohari
 // <linggawasistha.djohari@outlook.com>
 
 #pragma once
 
 #include <yaml-cpp/yaml.h>
-#include <unordered_map>
+
 #include <iostream>
 #include <string>
+#include <unordered_map>
 
 namespace h2v {
 namespace utils {
@@ -63,6 +64,6 @@ T Require(const YAML::Node& node, const std::string& key,
   }
 }
 
-}  // namespace cli
+}  // namespace yaml
 }  // namespace utils
 }  // namespace h2v

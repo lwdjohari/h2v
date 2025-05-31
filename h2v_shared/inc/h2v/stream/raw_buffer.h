@@ -1,4 +1,7 @@
-// include/hpack/raw_buffer.h
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025 Linggawasistha Djohari
+// <linggawasistha.djohari@outlook.com>
+
 #pragma once
 
 #include <cctype>
