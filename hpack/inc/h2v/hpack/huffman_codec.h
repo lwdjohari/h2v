@@ -6,7 +6,7 @@
 
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
-#include "h2v/hpack/raw_buffer.h"
+#include "h2v/stream/raw_buffer.h"
 
 namespace h2v {
 namespace hpack {
@@ -25,14 +25,14 @@ class HuffmanCodec {
   /// @param input         literal to compress
   /// @param out           buffer to append bytes
   static absl::StatusOr<std::size_t> Encode(absl::string_view input,
-                                            RawBuffer<>& out) noexcept;
+                                            stream::RawBuffer<>& out) noexcept;
 
   /// @brief Huffman-encode `input` into `out` as an HPACK string literal
   /// (length prefix + Huffman data). Returns total bytes written or error.
   /// @param input         literal to compress
   /// @param out           buffer to append bytes
   static absl::StatusOr<std::size_t> Encode(const std::string& input,
-                                            RawBuffer<>& out) noexcept;
+                                            stream::RawBuffer<>& out) noexcept;
 
   // Huffman Encoding Decoder implementations:
   // Flatmap FSM for Full byte-level decoding.
@@ -88,7 +88,7 @@ class HuffmanCodec {
   /// @param input      compressed input
   /// @param out        decoded string
   /// @param trace      turn on or off FSM Decoder tracer
-  static absl::StatusOr<size_t> Decode(const RawBuffer<>& input,
+  static absl::StatusOr<size_t> Decode(const stream::RawBuffer<>& input,
                                        std::string& out,
                                        bool trace = false) noexcept;
 };

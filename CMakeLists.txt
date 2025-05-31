@@ -1,6 +1,5 @@
-cmake_minimum_required(VERSION 3.6)
+cmake_minimum_required(VERSION 3.5)
 project(h2v LANGUAGES CXX)
-
 
 option(H2V_USE_CATCH ON)
 option(H2V_USE_TEST ON)
@@ -39,7 +38,9 @@ if(H2V_BUNDLE_ABSEIL)
     add_subdirectory(third_party/abseil build-abseil)
 endif()
 
-# Highway
+# -----------------------
+# ✅ Google Highway
+# -----------------------
 # Turn off building of Highway’s tests and examples
 option(HWY_ENABLE_TESTS    OFF)
 option(HWY_ENABLE_EXAMPLES OFF)
@@ -48,7 +49,22 @@ set(HWY_ENABLE_EXAMPLES OFF)
 
 add_subdirectory(third_party/highway build-highway)
 
+# -----------------------
+# ✅ CLI11
+# -----------------------
+add_subdirectory(third_party/cli11 build-cli11)
 
+# -----------------------
+# ✅ yaml-cpp
+# -----------------------
+# yaml-cpp
+add_subdirectory(third_party/yaml-cpp build-yaml)
+
+# -----------------------
+# ✅ h2v
+# -----------------------
+# configure h2v::base lib
+add_subdirectory(h2v_shared build-h2v-base)
 # configure h2v::hpack lib
 add_subdirectory(hpack build-hpack)
 # configure h2v

@@ -6,7 +6,7 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "h2v/hpack/error_tracer.h"
-#include "h2v/hpack/raw_buffer.h"
+#include "h2v/stream/raw_buffer.h"
 
 namespace h2v {
 namespace hpack {
@@ -92,7 +92,7 @@ inline absl::StatusOr<uint64_t> ParseInteger(const uint8_t* input,
 /// reserve).
 template <int PrefixBits>
 inline bool EncodeInteger(uint64_t value, uint8_t prefix_bits,
-                          RawBuffer<>& out) noexcept {
+                          stream::RawBuffer<>& out) noexcept {
   static_assert(PrefixBits >= 1 && PrefixBits <= 8,
                 "PrefixBits must be in [1,8]");
 

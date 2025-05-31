@@ -18,16 +18,16 @@ template absl::StatusOr<uint64_t> ParseInteger<8>(const uint8_t* input,
                                                   const uint8_t* end) noexcept;
 
 template bool EncodeInteger<5>(uint64_t value, uint8_t prefix_bits,
-                               RawBuffer<>& out) noexcept;
+                               stream::RawBuffer<>& out) noexcept;
 
 template bool EncodeInteger<6>(uint64_t value, uint8_t prefix_bits,
-                               RawBuffer<>& out) noexcept;
+                               stream::RawBuffer<>& out) noexcept;
 
 template bool EncodeInteger<7>(uint64_t value, uint8_t prefix_bits,
-                               RawBuffer<>& out) noexcept;
+                               stream::RawBuffer<>& out) noexcept;
 
 template bool EncodeInteger<8>(uint64_t value, uint8_t prefix_bits,
-                               RawBuffer<>& out) noexcept;
+                               stream::RawBuffer<>& out) noexcept;
 
 }  // namespace hpack
 }  // namespace h2v

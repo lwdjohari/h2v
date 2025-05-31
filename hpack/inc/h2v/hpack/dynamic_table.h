@@ -12,7 +12,7 @@
 #include "h2v/hpack/entry_type.h"
 #include "h2v/hpack/error_tracer.h"
 #include "h2v/hpack/hpack_stats.h"
-#include "h2v/hpack/raw_buffer.h"
+#include "h2v/stream/raw_buffer.h"
 
 namespace h2v {
 namespace hpack {
@@ -51,7 +51,7 @@ class DynamicTable {
 
  private:
   mutable absl::Mutex mutex_;
-  RawBuffer<> raw_buffer_;
+  stream::RawBuffer<> raw_buffer_;
   absl::node_hash_map<absl::string_view, std::shared_ptr<Entry>> cache_;
   std::vector<std::shared_ptr<Entry>> queue_;
   std::size_t head_ = 0, tail_ = 0;

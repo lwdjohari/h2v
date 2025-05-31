@@ -5,7 +5,7 @@
 #include "h2v/hpack/error_tracer.h"
 #include "h2v/hpack/huffman_table.h"
 #include "h2v/hpack/integer_codec.h"
-#include "h2v/hpack/raw_buffer.h"
+#include "h2v/stream/raw_buffer.h"
 
 // Pull in the generated FSM table:
 #include "generated/huffman_byte_table.cc"
@@ -14,15 +14,15 @@ namespace h2v {
 namespace hpack {
 
 absl::StatusOr<std::size_t> HuffmanCodec::Encode(const std::string& input,
-                                                 RawBuffer<>& out) noexcept {
+                                                 stream::RawBuffer<>& out) noexcept {
   return Encode(absl::string_view(input.data(), input.size()), out);
 }
 
 absl::StatusOr<std::size_t> HuffmanCodec::Encode(absl::string_view input,
-                                                 RawBuffer<>& out) noexcept {
+                                                 stream::RawBuffer<>& out) noexcept {
   // worst-case: every symbol 30 bits + up to 7 pad bits
   size_t max_bytes = (input.size() * 30 + 7) / 8;
-  RawBuffer<> hbuf{/*alloc=*/{}, /*initial_capacity=*/max_bytes};
+  stream::RawBuffer<> hbuf{/*alloc=*/{}, /*initial_capacity=*/max_bytes};
 
   if (hbuf.capacity() != max_bytes) {
     return absl::ResourceExhaustedError("Huffman encode allocator failed");
@@ -180,7 +180,7 @@ absl::StatusOr<size_t> HuffmanCodec::Decode(const uint8_t* ip, size_t ip_size,
   return out.size();
 }
 
-absl::StatusOr<size_t> HuffmanCodec::Decode(const RawBuffer<>& input,
+absl::StatusOr<size_t> HuffmanCodec::Decode(const stream::RawBuffer<>& input,
                                             std::string& out,
                                             bool trace) noexcept {
   return Decode(input.raw(), input.size(), out, trace);

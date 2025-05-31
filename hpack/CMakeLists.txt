@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.6)
+cmake_minimum_required(VERSION 3.5)
 project(h2v-hpack CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -55,7 +55,8 @@ target_link_libraries(${PROJECT_NAME}
     absl::status       
     absl::statusor 
     absl::time        
-    absl::synchronization       
+    absl::synchronization
+    h2v::base       
 )
 target_compile_definitions(${PROJECT_NAME} PUBLIC HPAC_STATIC_TABLE_SIZE=61)
 
@@ -96,12 +97,31 @@ target_link_libraries(block_h2v_huffman_bit_packer
     absl::status       
     absl::statusor 
     absl::time        
-    absl::synchronization  
+    absl::synchronization
+    h2v::base  
     h2v::hpack)
 
-add_executable(h2v_huffman_gen
-  src/h2v/hpack/codegen/huffman_table_gen_main.cc
+add_executable(h2v_huffman_gen_fullbytes_v1
+  src/h2v/hpack/codegen/huffman_table_gen_v1_main.cc
 )
+
+target_compile_options(h2v_huffman_gen_fullbytes_v1 PRIVATE
+  $<$<CONFIG:Debug>:-Og -g>
+  $<$<CONFIG:Release>:-O3 -march=native>
+  $<$<CONFIG:RelWithDebInfo>:-O3 -march=native>
+)
+
+add_executable(h2v_huffman_gen_v2
+  src/h2v/hpack/codegen/huffman_table_gen_v2_main.cc
+)
+
+target_compile_options(h2v_huffman_gen_v2 PRIVATE
+  $<$<CONFIG:Debug>:-Og -g>
+  $<$<CONFIG:Release>:-O3 -march=native>
+  $<$<CONFIG:RelWithDebInfo>:-O3 -march=native>
+)
+
+
 
 # Tests (Catch2 vendored under third_party/Catch2)
 # add_executable(hpack_tests
