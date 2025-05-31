@@ -4,3 +4,9 @@
 [submodule "third_party/highway"]
 	path = third_party/highway
 	url = https://github.com/google/highway.git
+[submodule "third_party/cli11"]
+	path = third_party/cli11
+	url = https://github.com/CLIUtils/CLI11.git
+[submodule "third_party/yaml-cpp"]
+	path = third_party/yaml-cpp
+	url = https://github.com/jbeder/yaml-cpp.git
