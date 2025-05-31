@@ -5,13 +5,13 @@
 #pragma once
 
 #include <yaml-cpp/yaml.h>
-
+#include <unordered_map>
 #include <iostream>
 #include <string>
 
 namespace h2v {
 namespace utils {
-namespace cli {
+namespace yaml {
 
 template <typename Enum>
 Enum ParseEnum(const YAML::Node& node,
