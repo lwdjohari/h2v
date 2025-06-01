@@ -13,13 +13,19 @@
 namespace h2v {
 namespace hpack {
 
-absl::StatusOr<std::size_t> HuffmanCodec::Encode(const std::string& input,
-                                                 stream::RawBuffer<>& out) noexcept {
+namespace huffman {
+
+
+
+}  // namespace huffman
+
+absl::StatusOr<std::size_t> HuffmanCodec::Encode(
+    const std::string& input, stream::RawBuffer<>& out) noexcept {
   return Encode(absl::string_view(input.data(), input.size()), out);
 }
 
-absl::StatusOr<std::size_t> HuffmanCodec::Encode(absl::string_view input,
-                                                 stream::RawBuffer<>& out) noexcept {
+absl::StatusOr<std::size_t> HuffmanCodec::Encode(
+    absl::string_view input, stream::RawBuffer<>& out) noexcept {
   // worst-case: every symbol 30 bits + up to 7 pad bits
   size_t max_bytes = (input.size() * 30 + 7) / 8;
   stream::RawBuffer<> hbuf{/*alloc=*/{}, /*initial_capacity=*/max_bytes};
@@ -176,7 +182,7 @@ absl::StatusOr<size_t> HuffmanCodec::Decode(const uint8_t* ip, size_t ip_size,
   if (trace) {
     std::cout << "[Decode] ✅ EOS padding accepted\n";
   }
-  
+
   return out.size();
 }
 
