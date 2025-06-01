@@ -7,104 +7,34 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "h2v/hpack/error_code.h"
-#include "h2v/hpack/generated/huffman_byte_table_encode.h"
-#include "h2v/hpack/generated/huffman_byte_table_nibble.h"
-#include "h2v/hpack/huffman_table.h"
 #include "h2v/stream/raw_buffer.h"
+
+#if defined(H2V_HPACK_HUFFMAN_ENCODER_USE_BIT_OP) && \
+    (H2V_HPACK_HUFFMAN_ENCODER_USE_BIT_OP == 1)
+#include "h2v/hpack/huffman_table.h"
+#endif
+
+#if !defined(H2V_HPACK_HUFFMAN_ENCODER_USE_BIT_OP) || \
+    (H2V_HPACK_HUFFMAN_ENCODER_USE_BIT_OP == 0)
+#include "h2v/hpack/generated/huffman_byte_table_encode.h"
+#endif
+
+#if !defined(H2V_HPACK_HUFFMAN_DECODER_USE_FULLBYTE) || \
+    (H2V_HPACK_HUFFMAN_DECODER_USE_FULLBYTE == 0)
+#include "h2v/hpack/generated/huffman_byte_table_nibble.h"
+#endif
+
 namespace h2v {
 namespace hpack {
-
-/// Subcodes for detailed Huffman errors.
-enum class HuffmanSubcode : uint16_t {
-  OutputOverflow = 1,
-  DecodeError = 2,
-};
-
-/// @brief HuffmanCodec for HPACK literal compression.
-class HuffmanCodec {
- public:
-  /// @brief Huffman-encode `input` into `out` as an HPACK string literal
-  /// (length prefix + Huffman data). Returns total bytes written or error.
-  /// @param input         literal to compress
-  /// @param out           buffer to append bytes
-  static absl::StatusOr<std::size_t> Encode(absl::string_view input,
-                                            stream::RawBuffer<>& out) noexcept;
-
-  /// @brief Huffman-encode `input` into `out` as an HPACK string literal
-  /// (length prefix + Huffman data). Returns total bytes written or error.
-  /// @param input         literal to compress
-  /// @param out           buffer to append bytes
-  static absl::StatusOr<std::size_t> Encode(const std::string& input,
-                                            stream::RawBuffer<>& out) noexcept;
-
-  // Huffman Encoding Decoder implementations:
-  // Flatmap FSM for Full byte-level decoding.
-  // -----------------------------------------
-  // HPACK’s Huffman codes map octets → bit-strings → octets.
-  // The decoder implementation operates entirely on the octet stream,
-  // emitting decoded octets and never attempting to interpret them as
-  // characters. Whatever octets come out—valid byte. UTF-8, invalid UTF-8,
-  // ISO-8859, binary garbage, the decoder will faithfully reconstruct them.
-  // UTF-8 validity is a higher-level concern.
-  // Empty input have terminated with an early check if (input.size()==0) return
-  // "". That cleanly handles "" with zero bytes on the wire and no padding.
-  // Invalid codes & padding Any lookup into kByteDecodeTable
-  // that doesn’t correspond to a valid 8-bit extension of a codeword is caught
-  // because we either assign emit_count=0 and next_state=error_state
-  // (and later kAccepting will reject it).
-  // We also explicitly check for emit_count==0xFF.
-  // The final padding check uses exactly the number of trailing 1-bits needed
-  // to align to a codeword boundary (via kStateDepth → pad_bits → kBitTable →
-  // kAccepting), so any malformed padding—too few ones, too many, or spurious
-  // symbol emissions—will be rejected.
-  // All bit-patterns covered with generated a full 513×256 byte-FSM
-  // plus a complete bit‐FSM for single‐bit steps,
-  // every possible input byte sequence is handled.
-  // There’s no unhandled branch or out-of-bounds lookup.
-  // Performance unaffected by content Whether you’re decoding
-  // ASCII, UTF-8 multibyte sequences, or arbitrary binary,
-  // the hot loop is the same: one pointer-arithmetic lookup per byte,
-  // two push_back calls at most, and a tiny O(1) padding check at the end.
-  // So in short:
-  // This Huffman decoder is encoding-agnostic. It will happily decode
-  // any octet stream; it’s up to the caller to validate or interpret the
-  // resulting bytes as UTF-8 (or not).
-  // Edge cases:
-  // - Empty strings → handled.
-  // - Fully byte-aligned codewords → state==0 fast-path accepts with no padding
-  // check.
-  // - Mid-code endings → precise pad_bits → bit-FSM → accepting leaf check
-  // ensures correct EOS.
-  // - Invalid codewords or padding → reliably rejected via
-  // InvalidArgumentError.
-
-  /// @brief Decode `input` into `out`, returning total symbols decoded.
-  /// @param ip         pointer to raw buffer
-  /// @param ip_size    raw buffer size
-  /// @param out        decoded string
-  /// @param trace      turn on or off FSM Decoder tracer
-  static absl::StatusOr<size_t> Decode(const uint8_t* ip, size_t ip_size,
-                                       std::string& out,
-                                       bool trace = false) noexcept;
-
-  /// @brief Decode `input` into `out`, returning total symbols decoded.
-  /// @param input      compressed input
-  /// @param out        decoded string
-  /// @param trace      turn on or off FSM Decoder tracer
-  static absl::StatusOr<size_t> Decode(const stream::RawBuffer<>& input,
-                                       std::string& out,
-                                       bool trace = false) noexcept;
-};
-
 namespace huffman {
 
-inline static stream::RawBuffer<> make_decode_buffer(size_t decoded_size) {
+inline static stream::RawBuffer<> make_decode_buffer(size_t coded_size) {
   // worst-case: every symbol 30 bits + up to 7 pad bits
-  return stream::RawBuffer<>({}, (decoded_size * 30 + 7) / 8);
+  return stream::RawBuffer<>({}, (coded_size * 30 + 7) / 8);
 }
 
-inline static stream::RawBuffer<> make_encode_buffer(size_t undecoded_size) {
-  return stream::RawBuffer<>({}, undecoded_size);
+inline static stream::RawBuffer<> make_encode_buffer(size_t uncoded_size) {
+  return stream::RawBuffer<>({}, uncoded_size);
 }
 
 inline static void mark_buffer_write(stream::RawBuffer<>& buffer,
@@ -112,42 +42,36 @@ inline static void mark_buffer_write(stream::RawBuffer<>& buffer,
   buffer.append(write_size);
 }
 
-/// @brief Encode `input` into `out`, returning total symbols decoded.
-inline static int32_t FastEncode(const uint8_t* in_ptr, size_t in_size,
-                                 uint8_t* out_ptr, size_t& out_size,
-                                 bool trace = false) noexcept {
-  if (in_size == 0) {
-    if (trace) {
-      std::cout << "[Encode] input size = 0 → nothing to do\n";
-    }
+#if defined(H2V_HPACK_HUFFMAN_ENCODER_USE_BIT_OP) || \
+    (H2V_HPACK_HUFFMAN_ENCODER_USE_BIT_OP == 1)
 
-    out_size = 0;
+/// Huffman Encode using bits operations.
+inline static HpackErrorCode FastEncode(const uint8_t* in_ptr, size_t in_size,
+                                        uint8_t* out_ptr, size_t out_size,
+                                        size_t& encoded_size,
+                                        bool trace = false) noexcept {
+  if (in_size == 0) {
+    encoded_size = 0;
     return HPACK_ERR::NONE;
   }
 
+  if (out_size == 0) {
+    encoded_size = 0;
+    return HPACK_ERR::BUFFER_TO_SMALL;
+  }
+
   if (!in_ptr) {
-    if (trace) {
-      std::cout << "[Encode] input pointer is null\n";
-    }
-    out_size = 0;
+    encoded_size = 0;
     return HPACK_ERR::INPUT_NULL_PTR;
   }
   if (!out_ptr) {
-    if (trace) {
-      std::cout << "[Encode] output pointer is null\n";
-    }
-    out_size = 0;
+    encoded_size = 0;
     return HPACK_ERR::OUTPUT_NULL_PTR;
   }
 
   uint64_t acc = 0;  // accumulator of bits (left-aligned within 64)
   int bits = 0;      // how many bits are currently in acc
   size_t outpos = 0;
-
-  if (trace) {
-    std::cout << "[Encode] Starting encoding of " << in_size << " bytes\n";
-    std::cout << "--------------------------------------------------\n";
-  }
 
   for (size_t i = 0; i < in_size; i++) {
     uint8_t sym = *(in_ptr + i);       // in[i];
@@ -200,23 +124,35 @@ inline static int32_t FastEncode(const uint8_t* in_ptr, size_t in_size,
     }
   }
 
-  out_size = outpos;
+  encoded_size = outpos;
   return HPACK_ERR::NONE;
 }
+#endif
 
-inline static int32_t FastEncodeFlatmap(const uint8_t* in_ptr, size_t in_size,
-                                        uint8_t* out_ptr, size_t& out_size,
+#if !defined(H2V_HPACK_HUFFMAN_ENCODER_USE_BIT_OP) || \
+    (H2V_HPACK_HUFFMAN_ENCODER_USE_BIT_OP == 0)
+
+/// Huffman Encode using precomputed lookup table kEncodeTable.
+inline static HpackErrorCode FastEncode(const uint8_t* in_ptr, size_t in_size,
+                                        uint8_t* out_ptr, size_t out_size,
+                                        size_t& encoded_size,
                                         bool trace = false) noexcept {
   if (in_size == 0) {
-    out_size = 0;
+    encoded_size = 0;
     return HPACK_ERR::NONE;
   }
+
+  if (out_size == 0) {
+    encoded_size = 0;
+    return HPACK_ERR::BUFFER_TO_SMALL;
+  }
+
   if (in_ptr == nullptr) {
-    out_size = 0;
+    encoded_size = 0;
     return HPACK_ERR::INPUT_NULL_PTR;
   }
   if (out_ptr == nullptr) {
-    out_size = 0;
+    encoded_size = 0;
     return HPACK_ERR::OUTPUT_NULL_PTR;
   }
 
@@ -255,16 +191,12 @@ inline static int32_t FastEncodeFlatmap(const uint8_t* in_ptr, size_t in_size,
     while (bits_in_acc >= 32) {
       int shift = bits_in_acc - 32;
       uint32_t word = uint32_t(acc >> shift);
-      // Write those 4 bytes (big-endian)
-      uint8_t b0 = uint8_t(word >> 24);
-      uint8_t b1 = uint8_t(word >> 16);
-      uint8_t b2 = uint8_t(word >> 8);
-      uint8_t b3 = uint8_t(word);
 
-      out_ptr[outpos++] = b0;
-      out_ptr[outpos++] = b1;
-      out_ptr[outpos++] = b2;
-      out_ptr[outpos++] = b3;
+      // Write those 4 bytes (big-endian)
+      out_ptr[outpos++] = uint8_t(word >> 24);
+      out_ptr[outpos++] = uint8_t(word >> 16);
+      out_ptr[outpos++] = uint8_t(word >> 8);
+      out_ptr[outpos++] = uint8_t(word);
 
       bits_in_acc -= 32;
       if (bits_in_acc > 0) {
@@ -311,9 +243,11 @@ inline static int32_t FastEncodeFlatmap(const uint8_t* in_ptr, size_t in_size,
     }
   }
 
-  out_size = outpos;
+  encoded_size = outpos;
   return HPACK_ERR::NONE;
 }
+
+#endif
 
 // inline static int32_t FastEncodeFlatmap(const uint8_t* in_ptr, size_t
 // in_size,
@@ -478,28 +412,41 @@ inline static int32_t FastEncodeFlatmap(const uint8_t* in_ptr, size_t in_size,
 //   return HPACK_ERR::NONE;
 // }
 
-inline static int32_t FastDecode(const uint8_t* ip, size_t input_size,
-                                 uint8_t* out_ptr, size_t& out_size) noexcept {
+#if !defined(H2V_HPACK_HUFFMAN_DECODER_USE_FULLBYTE) || \
+    (H2V_HPACK_HUFFMAN_DECODER_USE_FULLBYTE == 0)
+
+/// Huffman Decode using 4 Bit Nibble precomputed FSM
+inline static HpackErrorCode FastDecode(const uint8_t* in_ptr, size_t in_size,
+                                        uint8_t* out_ptr, size_t out_size,
+                                        size_t& decoded_size,
+                                        bool trace = false) noexcept {
   // We assume it is empty string
-  if (input_size == 0) {
-    out_size = 0;
+  if (in_size == 0) {
+    decoded_size = 0;
     return HPACK_ERR::NONE;
   }
 
-  if (!ip) {
+  if (out_size < in_size) {
+    decoded_size = 0;
+    return HPACK_ERR::BUFFER_TO_SMALL;
+  }
+
+  if (!in_ptr) {
+    decoded_size = 0;
     return HPACK_ERR::INPUT_NULL_PTR;
   }
 
   if (!out_ptr) {
+    decoded_size = 0;
     return HPACK_ERR::OUTPUT_NULL_PTR;
   }
 
-  const uint8_t* ipEnd = ip + input_size;
+  const uint8_t* ip_end = in_ptr + in_size;
 
   uint16_t state = 0;  // new‐index in [0..511]
   size_t out_pos = 0;
-  while (ip < ipEnd) {
-    uint8_t b = *ip++;
+  while (in_ptr < ip_end) {
+    uint8_t b = *in_ptr++;
 
     // --- high nibble (4 bits)
     {
@@ -509,9 +456,9 @@ inline static int32_t FastDecode(const uint8_t* ip, size_t input_size,
       if ((packed >> 31) & 1) {
         return HPACK_ERR::HUFFMAN_DECODE_INVALID_PREFIX_NIBBLE;
       }
-      uint16_t nextState = (packed >> 22) & 0x01FF;  // 9 bits
-      uint8_t emitCnt = (packed >> 20) & 0x03;       // 2 bits
-      if (emitCnt == 2) {
+      uint16_t next_state = (packed >> 22) & 0x01FF;  // 9 bits
+      uint8_t emit_count = (packed >> 20) & 0x03;     // 2 bits
+      if (emit_count == 2) {
         uint8_t c0 = (packed >> 12) & 0xFF;
         uint8_t c1 = (packed >> 4) & 0xFF;
         *(out_ptr + (out_pos)) = c0;
@@ -519,13 +466,13 @@ inline static int32_t FastDecode(const uint8_t* ip, size_t input_size,
         out_pos += 2;
         // out.push_back(char(c0));
         // out.push_back(char(c1));
-      } else if (emitCnt == 1) {
+      } else if (emit_count == 1) {
         uint8_t c0 = (packed >> 12) & 0xFF;
         *(out_ptr + (out_pos)) = c0;
         out_pos += 1;
         // out.push_back(char(c0));
       }
-      state = nextState;
+      state = next_state;
     }
 
     // --- low nibble (4 bits)
@@ -536,9 +483,9 @@ inline static int32_t FastDecode(const uint8_t* ip, size_t input_size,
       if ((packed >> 31) & 1) {
         return HPACK_ERR::HUFFMAN_DECODE_INVALID_PREFIX_NIBBLE;
       }
-      uint16_t nextState = (packed >> 22) & 0x01FF;
-      uint8_t emitCnt = (packed >> 20) & 0x03;
-      if (emitCnt == 2) {
+      uint16_t next_state = (packed >> 22) & 0x01FF;
+      uint8_t emit_count = (packed >> 20) & 0x03;
+      if (emit_count == 2) {
         uint8_t c0 = (packed >> 12) & 0xFF;
         uint8_t c1 = (packed >> 4) & 0xFF;
         *(out_ptr + (out_pos)) = c0;
@@ -546,20 +493,20 @@ inline static int32_t FastDecode(const uint8_t* ip, size_t input_size,
         out_pos += 2;
         // out.push_back(char(c0));
         // out.push_back(char(c1));
-      } else if (emitCnt == 1) {
+      } else if (emit_count == 1) {
         uint8_t c0 = (packed >> 12) & 0xFF;
         *(out_ptr + (out_pos)) = c0;
         out_pos += 1;
         // out.push_back(char(c0));
       }
-      state = nextState;
+      state = next_state;
     }
   }
 
   // padding/EOS check: feed 0..7 bits=1, one bit at a time via
   // kBitTableNibble[state][1],
   // then check the final state’s bit in kAcceptingNibbleBits[].
-  auto checkAccepting = [&](uint16_t s) -> bool {
+  auto check_accepting = [&](uint16_t s) -> bool {
     // The “accepting” bitmask was stored 513 bits → 9×64-bit words.
     // If we land on EOS leaf exactly, the old index was 512; here we only
     // packed 512 states (0..511). But when bit-FSM transitions from s lead to
@@ -581,7 +528,7 @@ inline static int32_t FastDecode(const uint8_t* ip, size_t input_size,
       }
       s0 = entry.next_state;
     }
-    if (!invalid && checkAccepting(s0)) {
+    if (!invalid && check_accepting(s0)) {
       accepted = true;
       break;
     }
@@ -590,9 +537,20 @@ inline static int32_t FastDecode(const uint8_t* ip, size_t input_size,
     return HPACK_ERR::HUFFMAN_DECODE_INVALID_EOS_PADDING_NIBBLE;
   }
 
-  out_size = out_pos;
+  decoded_size = out_pos;
   return HPACK_ERR::NONE;
 }
+
+#endif
+
+#if defined(H2V_HPACK_HUFFMAN_DECODER_USE_FULLBYTE) && \
+    (H2V_HPACK_HUFFMAN_DECODER_USE_FULLBYTE == 1)
+static HpackErrorCode FastDecode(const uint8_t* in_ptr, size_t in_size,
+                                 uint8_t* out_ptr, size_t out_size,
+                                 size_t& decoded_size) noexcept;
+
+#endif
+
 }  // namespace huffman
 }  // namespace hpack
 }  // namespace h2v
