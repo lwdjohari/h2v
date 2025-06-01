@@ -8,6 +8,7 @@
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iomanip>
 #include <memory>
 #include <sstream>
@@ -39,11 +40,20 @@ class RawBuffer {
   using allocator_type = Allocator;
   using value_type = uint8_t;
 
+  // explicit RawBuffer(const Allocator& alloc = Allocator(),
+  //                    std::size_t initial_capacity = 0)
+  //                 : alloc_(alloc), data_(nullptr), size_(0), capacity_(0) {
+  //   reserve(initial_capacity);
+  // }
+
   /// @param alloc    allocator instance to use for all memory ops.
   /// @param initial_capacity  reserve this many bytes initially.
-  explicit RawBuffer(const Allocator& alloc = Allocator(),
+  explicit RawBuffer(Allocator alloc = Allocator(),
                      std::size_t initial_capacity = 0)
-                  : alloc_(alloc), data_(nullptr), size_(0), capacity_(0) {
+                  : alloc_(std::move(alloc)),
+                    data_(nullptr),
+                    size_(0),
+                    capacity_(0) {
     reserve(initial_capacity);
   }
 
@@ -390,6 +400,27 @@ class RawBuffer {
     }
   }
 };
+
+template <typename Allocator = std::allocator<uint8_t>>
+inline static RawBuffer<Allocator> make_raw_buffer_from_copy(
+    const uint8_t* ptr, std::size_t size,
+    Allocator alloc = Allocator()) noexcept {
+  if (ptr == nullptr) {
+    return RawBuffer<Allocator>{};
+  }
+
+  if (size == 0) {
+    // nothing to do, size_ stays 0
+    return RawBuffer<Allocator>{};
+  }
+
+  auto out = RawBuffer(alloc, size);
+
+  memcpy(out.mutable_raw(), ptr, size);
+  out.append(size);
+
+  return std::move(out);
+}
 
 }  // namespace stream
 }  // namespace h2v
