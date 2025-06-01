@@ -31,7 +31,6 @@ option(HPAC_ENABLE_LTO "Enable Link Time Optimization" ON)
 # Our library
 add_library(${PROJECT_NAME}
   src/h2v/hpack/dynamic_table.cc
-  src/h2v/hpack/integer_codec.cc
   src/h2v/hpack/generated/huffman_byte_table.cc
   src/h2v/hpack/huffman_codec.cc
   # src/h2v/hpack/hpack.cc
@@ -111,8 +110,16 @@ target_compile_options(h2v_huffman_gen_fullbytes_v1 PRIVATE
   $<$<CONFIG:RelWithDebInfo>:-O3 -march=native>
 )
 
+
 add_executable(h2v_huffman_gen_v2
-  src/h2v/hpack/codegen/huffman_table_gen_v2_main.cc
+  src/h2v/hpack/codegen/huffman_table_gen_v2_main.cc)
+target_include_directories(h2v_huffman_gen_v2
+  PRIVATE
+    src/h2v/codegen
+)
+target_link_libraries(h2v_huffman_gen_v2
+  PRIVATE
+    h2v::base
 )
 
 target_compile_options(h2v_huffman_gen_v2 PRIVATE

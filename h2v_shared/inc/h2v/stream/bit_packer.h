@@ -5,10 +5,10 @@
 #include <stdexcept>
 #include <vector>
 
-#include "h2v/hpack/utils.h"
+#include "h2v/utils/byte_utils.h"
 
 namespace h2v {
-namespace hpack {
+namespace stream {
 class BitPacker {
  public:
   /// Write the low `bit_len` bits of `symbol` (≤30) into the stream, MSB-first.
@@ -21,22 +21,23 @@ class BitPacker {
     WriteBitsBE(symbol, bit_len);
   }
 
-  // Pad the *remaining* bits in the current byte using the MSB-bits of any symbol
-  // (e.g. EOS), given as its LSB-aligned 'symbol' + full 'bit_len'.
-  // You can pass in a symbol length >8 (e.g. EOS_LEN=30). Only the top
-  // (8-bit_pos_) bits are emitted to fill out the byte.
+  // Pad the *remaining* bits in the current byte using the MSB-bits of any
+  // symbol (e.g. EOS), given as its LSB-aligned 'symbol' + full 'bit_len'. You
+  // can pass in a symbol length >8 (e.g. EOS_LEN=30). Only the top (8-bit_pos_)
+  // bits are emitted to fill out the byte.
   void PadWithSymbol(uint32_t symbol, uint8_t bit_len) {
     if (bit_len == 0 || bit_len > 32)
       throw std::invalid_argument("bit_len must be 1..32");
-    if (bit_pos_ == 0) return;       // already aligned
+    if (bit_pos_ == 0)
+      return;  // already aligned
 
     // mask to bit_len:
     symbol &= (bit_len == 32 ? 0xFFFFFFFFu : ((1u << bit_len) - 1));
 
-    uint8_t need = 8 - bit_pos_;     // bits needed to fill current byte
+    uint8_t need = 8 - bit_pos_;  // bits needed to fill current byte
     // take the highest 'need' bits of our symbol:
     uint8_t shift = bit_len - need;
-    uint8_t pad   = static_cast<uint8_t>((symbol >> shift) & ((1u << need) - 1));
+    uint8_t pad = static_cast<uint8_t>((symbol >> shift) & ((1u << need) - 1));
 
     WriteBitsBE(pad, need);
   }
@@ -59,13 +60,13 @@ class BitPacker {
   /// right.
   /// Each line shows `bytes_per_line` bytes (default 16).
   std::string HexDump() {
-    return util::HexDump(buffer_);
+    return utils::byte::HexDump(buffer_);
   }
 
   /// Returns a hex+ASCII dump, grouping bytes into big-endian 16-bit words.
   /// Each line contains `words_per_line` words, plus “ | ASCII…” on the right.
   std::string HexDump16() {
-    return util::HexDump16WithASCII(buffer_);
+    return utils::byte::HexDump16WithASCII(buffer_);
   }
 
  private:
@@ -96,7 +97,5 @@ class BitPacker {
   }
 };
 
-}  // namespace hpack
-
+}  // namespace stream
 }  // namespace h2v
-namespace hpack {}  // namespace hpack
