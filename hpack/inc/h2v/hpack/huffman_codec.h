@@ -28,13 +28,26 @@ namespace h2v {
 namespace hpack {
 namespace huffman {
 
-inline static stream::RawBuffer<> make_decode_buffer(size_t coded_size) {
-  // worst-case: every symbol 30 bits + up to 7 pad bits
-  return stream::RawBuffer<>({}, (coded_size * 30 + 7) / 8);
+
+// inline static stream::RawBuffer<> make_decode_buffer(size_t coded_size) {
+//   // worst-case: every symbol 30 bits + up to 7 pad bits
+//   return stream::RawBuffer<>({}, (coded_size * 30 + 7) / 8);
+// }
+// inline static stream::RawBuffer<> make_encode_buffer(size_t uncoded_size) {
+//   return stream::RawBuffer<>({}, uncoded_size);
+// }
+
+
+
+// For encoding N raw bytes, allocate enough room for up to 30 bits per byte:
+inline static stream::RawBuffer<> make_encode_buffer(size_t uncoded_size) {
+  // worst-case: each of the uncoded_size bytes maps to 30 bits → (30×N + 7)/8 bytes
+  return stream::RawBuffer<>({}, (uncoded_size * 30 + 7) / 8);
 }
 
-inline static stream::RawBuffer<> make_encode_buffer(size_t uncoded_size) {
-  return stream::RawBuffer<>({}, uncoded_size);
+// For decoding M Huffman bytes, allocate for up to 30 bits per input byte:
+inline static stream::RawBuffer<> make_decode_buffer(size_t coded_size) {
+  return stream::RawBuffer<>({}, (coded_size * 30 + 7) / 8);
 }
 
 inline static void mark_buffer_write(stream::RawBuffer<>& buffer,
@@ -426,10 +439,10 @@ inline static HpackErrorCode FastDecode(const uint8_t* in_ptr, size_t in_size,
     return HPACK_ERR::NONE;
   }
 
-  if (out_size < in_size) {
-    decoded_size = 0;
-    return HPACK_ERR::BUFFER_TO_SMALL;
-  }
+  // if (out_size < in_size) {
+  //   decoded_size = 0;
+  //   return HPACK_ERR::BUFFER_TO_SMALL;
+  // }
 
   if (!in_ptr) {
     decoded_size = 0;
