@@ -31,7 +31,7 @@ option(HPAC_ENABLE_LTO "Enable Link Time Optimization" ON)
 # Our library
 add_library(${PROJECT_NAME}
   src/h2v/hpack/dynamic_table.cc
-  src/h2v/hpack/generated/huffman_byte_table.cc
+  src/h2v/hpack/generated/huffman_byte_table_full.cc
   src/h2v/hpack/huffman_codec.cc
   # src/h2v/hpack/hpack.cc
 )
@@ -80,10 +80,10 @@ add_library(h2v::hpack ALIAS ${PROJECT_NAME} )
 #   $<$<CONFIG:RelWithDebInfo>:-O3 -march=native>
 # )
 
-add_executable(block_h2v_huffman_bit_packer
-  tests/blocks/huffman_encode_bit_packer_main.cc
+add_executable(h2v_example_huffman_roundtrip
+  examples/huffman_codec_roundtrip_main.cc
 )
-target_link_libraries(block_h2v_huffman_bit_packer
+target_link_libraries(h2v_example_huffman_roundtrip
   PRIVATE
     absl::config
     absl::core_headers
@@ -100,15 +100,6 @@ target_link_libraries(block_h2v_huffman_bit_packer
     h2v::base  
     h2v::hpack)
 
-add_executable(h2v_huffman_gen_fullbytes_v1
-  src/h2v/hpack/codegen/huffman_table_gen_v1_main.cc
-)
-
-target_compile_options(h2v_huffman_gen_fullbytes_v1 PRIVATE
-  $<$<CONFIG:Debug>:-Og -g>
-  $<$<CONFIG:Release>:-O3 -march=native>
-  $<$<CONFIG:RelWithDebInfo>:-O3 -march=native>
-)
 
 
 add_executable(h2v_huffman_gen_v2

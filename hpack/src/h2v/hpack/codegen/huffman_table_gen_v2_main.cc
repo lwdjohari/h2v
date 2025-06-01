@@ -21,6 +21,7 @@
 #include "h2v/utils/cli/terminal_color.h"
 #include "v2/fsm_4bit_nibble_gen.h"
 #include "v2/fsm_encode_gen.h"
+#include "v2/fsm_full_byte_gen.h"
 
 enum class Mode { Unknown, EmitFullByte, Emit4BitNibble, EmitEncode };
 // main(): parse args, build trie, index, then emit tables
@@ -114,10 +115,7 @@ int main(int argc, char** argv) {
   if (mode == Mode::Emit4BitNibble) {
     result = h2v::codegen::huffman_4bit_nibble::GenerateFsm4BitNibble(out_path);
   } else if (mode == Mode::EmitFullByte) {
-    std::cout << h2v::utils::cli::terminal_color.Green()
-            << "[ Status ]: " << h2v::utils::cli::terminal_color.Reset()
-    <<"Not yet implemented, exiting now...\n";
-    return 1;
+    result = h2v::codegen::huffman_full_byte::GenerateFsmFullByte(out_path);
   } else {
     result = h2v::codegen::huffman_encode::GenerateEncodeTable(out_path);
   }
