@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
@@ -17,8 +18,20 @@
 namespace h2v {
 namespace stream {
 
-/// @brief A resizable byte buffer with full allocator control,
-///        avoiding any std::vector overhead.
+using RawBufferErrorCode = int32_t;
+namespace RAW_BUFFER_ERR {
+
+static constexpr RawBufferErrorCode NONE = 0;
+static constexpr RawBufferErrorCode INVALID_ARGS = 1;
+static constexpr RawBufferErrorCode OUT_OF_RANGE = 2;
+static constexpr RawBufferErrorCode OVERRUN = 3;
+static constexpr RawBufferErrorCode NULL_PTR = 4;
+static constexpr RawBufferErrorCode INVARIANT_VIOLATION = 5;
+}  // namespace RAW_BUFFER_ERR
+
+/// @brief A resizable byte buffer with full allocator control
+///        and absl::span integration for safe byte operations.
+///        Avoiding any std::vector overhead or raw array alloc.
 /// @tparam Allocator  STL-compatible allocator for uint8_t.
 template <typename Allocator = std::allocator<uint8_t>>
 class RawBuffer {
@@ -44,13 +57,15 @@ class RawBuffer {
   }
 
   RawBuffer& operator=(RawBuffer&& o) noexcept {
-    clear_storage();
-    alloc_ = std::move(o.alloc_);
-    data_ = o.data_;
-    size_ = o.size_;
-    capacity_ = o.capacity_;
-    o.data_ = nullptr;
-    o.size_ = o.capacity_ = 0;
+    if (this != &o) {
+      clear_storage();
+      alloc_ = std::move(o.alloc_);
+      data_ = o.data_;
+      size_ = o.size_;
+      capacity_ = o.capacity_;
+      o.data_ = nullptr;
+      o.size_ = o.capacity_ = 0;
+    }
     return *this;
   }
 
@@ -126,9 +141,145 @@ class RawBuffer {
     size_ = capacity_ = 0;
   }
 
-  /// Single-slice interface; can extend to multi-slice if needed.
-  std::vector<absl::Span<const uint8_t>> slices() const noexcept {
-    return {data()};
+  /**
+   * Return a single contiguous span of `len` bytes starting at `pos`.
+   *
+   * If end_on_capacity == false, we require pos+len ≤ size_.
+   * If end_on_capacity == true, we require pos+len ≤ capacity_.
+   *
+   * This function throws BufferError on any invalid argument or invariant
+   * violation.
+   *
+   * @param len               Num of bytes to include in the slice; must be ≥ 0.
+   * @param pos               Starting byte‐offset (default=0).
+   * @param ec return RAW_BUFFER_ERR::NONE error code when success
+   * @param end_on_capacity   If true, slice bounds are checked against
+   * capacity_; otherwise against size_.
+   * @return                  absl::Span<const uint8_t> covering [pos..pos+len).
+   * @exception error as RAW_BUFFER_ERR:
+   *   - slice_size == 0 (INVALID),
+   *   - pos > limit (OUT_OF_RANGE),
+   *   - len > (limit − pos) (OVERRUN),
+   *   - buffer_ == nullptr while limit > 0 (NULL_PTR),
+   *   - capacity_ < size_ (INV_VIOLATION).
+   */
+  absl::Span<const uint8_t> slice(std::size_t len, std::size_t pos,
+                                  RawBufferErrorCode& ec,
+                                  bool end_on_capacity = false) const {
+    // 1. Which boundary to use: size_ vs capacity_.
+    const std::size_t limit = end_on_capacity ? capacity_ : size_;
+
+    // 2. Check slice_size (len) is not negative.
+    //    (std::size_t is unsigned, so only check for len == 0 below.)
+    // 3. If limit is 0, the only valid (pos,len) is (0,0).
+    if (limit == 0) {
+      if (len != 0 || pos != 0) {
+        ec = RAW_BUFFER_ERR::OUT_OF_RANGE;
+      }
+      // Return an empty span
+      return absl::Span<const uint8_t>();
+    }
+
+    // 4. Now limit > 0. Ensure buffer_ is not null.
+    if (data_ == nullptr) {
+      ec = RAW_BUFFER_ERR::NULL_PTR;
+    }
+
+    // 5. Ensure slice_size (len) is > 0.
+    if (len == 0) {
+      ec = RAW_BUFFER_ERR::INVALID_ARGS;
+    }
+
+    // 6. Check invariant: capacity_ ≥ size_.
+    if (capacity_ < size_) {
+      ec = RAW_BUFFER_ERR::INVARIANT_VIOLATION;
+    }
+
+    // 7. pos must be < limit.
+    if (pos >= limit) {
+      ec = RAW_BUFFER_ERR::OUT_OF_RANGE;
+    }
+
+    // 8. rem = limit - pos: bytes available from pos to end.
+    const std::size_t rem = limit - pos;
+
+    // 9. len must not exceed rem.
+    if (len > rem) {
+      ec = RAW_BUFFER_ERR::OVERRUN;
+    }
+
+    // 10. All checks passed → return the span.
+    return absl::Span<const uint8_t>(data_ + pos, len);
+  }
+
+  /**
+   * Multi‐slice
+   *
+   *  - slice_size must be > 0, otherwise std::invalid_argument.
+   *  - If data() == nullptr but size() > 0 or capacity() > 0, return empty
+   * vector.
+   *  - If capacity() < size(), return empty vector.
+   *  - Otherwise, splits [0..total_len) into spans of up to slice_size bytes.
+   *
+   * @param slice_size       Maximum length of each span (must be >= 1).
+   * @param slice_on_capacity true split up to capacity(), false up to size().
+   * @param ec return RAW_BUFFER_ERR::NONE error code when success
+   * @return Vector of spans, each pointing to a contiguous chunk of the buffer.
+   * @throws none - error is passing out through `ec`.
+   */
+  std::vector<absl::Span<const uint8_t>> slices(
+      std::size_t slice_size, bool slice_on_capacity,
+      RawBufferErrorCode& ec) const noexcept {
+    // 1. Must request a nonzero slice_size
+    // 2. If we have no allocated buffer
+    //    (capacity_ == 0 and size_ == 0), return empty.
+    if (slice_size == 0 || (capacity_ == 0 && size_ == 0)) {
+      ec = RAW_BUFFER_ERR::INVALID_ARGS;
+      return {};
+    }
+
+    // 3. If buffer_ == nullptr but either size_ > 0 or capacity_ > 0,
+    //    that’s an  error.
+    if (data_ == nullptr) {
+      ec = RAW_BUFFER_ERR::NULL_PTR;
+      return {};
+    }
+
+    // 4. Ensure capacity_ >= size_.
+    //    If not, invariant violated.
+    if (capacity_ < size_) {
+      ec = RAW_BUFFER_ERR::INVARIANT_VIOLATION;
+      return {};
+    }
+
+    // 5. Decide how far to slice: either up to size_ or up to capacity_.
+    const std::size_t total_len = slice_on_capacity ? capacity_ : size_;
+
+    // 6. If nothing to slice
+    //    (e.g., size_=0 and slice_on_capacity=false), return empty.
+    if (total_len == 0) {
+      ec = RAW_BUFFER_ERR::NONE;
+      return {};
+    }
+
+    // 8. Reserve enough room for all potential sub‐slices.
+    //    ceil(total_len / slice_size) = (total_len + slice_size - 1) /
+    //    slice_size
+    std::size_t max_slices = (total_len + slice_size - 1) / slice_size;
+
+    std::vector<absl::Span<const uint8_t>> out;
+    out.reserve(max_slices);
+
+    // 9. Walk through the buffer, slicing in chunks of up to slice_size bytes.
+    std::size_t offset = 0;
+    while (offset < total_len) {
+      std::size_t chunk_len = std::min(slice_size, total_len - offset);
+      out.emplace_back(absl::Span<const uint8_t>(data_ + offset, chunk_len));
+      offset += chunk_len;
+    }
+
+    ec = RAW_BUFFER_ERR::NONE;
+    return out;
   }
 
   /// Simple hex dump on one line, with optional ASCII aligned in its own
@@ -167,7 +318,7 @@ class RawBuffer {
         unsigned char c = ptr[i];
         oss << (std::isprint(c) ? char(c) : '.');
       }
-      oss << '|';
+      // oss << '|';
     }
 
     oss << std::dec;
@@ -217,7 +368,7 @@ class RawBuffer {
           char c = ptr[i];
           oss << (std::isprint(static_cast<unsigned char>(c)) ? c : '.');
         }
-        oss << '|';
+        // oss << '|';
       }
 
       // 3) Newline except after last line
